@@ -22,16 +22,3 @@ services:
         condition: service_healthy
     env_file:
       - ./data/env_file 
-
-  vmagent:
-    container_name: vm_agent
-    image: victoriametrics/vmagent:latest
-    ports:
-      - "8429:8429"
-    volumes:
-      - ./data:/data
-    command:
-      - '-promscrape.config=/data/config/prometheus.yml'
-      - '-remoteWrite.url=https://insert-telemetry.behindthecurtain.xyz/insert/0/prometheus/api/v1/write'
-    depends_on:
-      - node
