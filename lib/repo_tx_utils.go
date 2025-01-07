@@ -265,8 +265,10 @@ func (node *NodeConfig) SendDataWithRetry(ctx context.Context, req sdktypes.Msg,
 			log.Info().Str("fees", txOptions.Fees).Msg("Attempting tx with calculated fees")
 			txService, err = node.Chain.Client.CreateTxWithOptions(ctx, node.Chain.Account, txOptions, req)
 			if err != nil {
+				log.Error().Err(err).Str("fees", txOptions.Fees).Msg("Failed to create tx with calculated fees")
 				return nil, err
 			}
+			log.Info().Str("fees", txOptions.Fees).Msg("Successfully created tx with calculated fees")
 		}
 
 		log.Trace().Msg("Creation of tx successful, broadcasting tx")
