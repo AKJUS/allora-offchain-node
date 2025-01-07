@@ -271,14 +271,16 @@ func (node *NodeConfig) SendDataWithRetry(ctx context.Context, req sdktypes.Msg,
 			log.Info().Str("fees", txOptions.Fees).Msg("Successfully created tx with calculated fees")
 		}
 
-		log.Trace().Msg("Creation of tx successful, broadcasting tx")
+		log.Info().Msg("Creation of tx successful, broadcasting tx")
 		// Broadcast tx
 		txResponse, err := txService.Broadcast(ctx)
 		if err == nil {
 			log.Info().Str("msg", infoMsg).Str("txHash", txResponse.TxHash).Msg("Success")
 			return txResp, nil
 		}
+
 		// Handle error on broadcasting
+		log.Error().Err(err).Msg("Tx broadcast error")
 		errorResponse, err := processError(ctx, err, infoMsg, retryCount, node)
 		switch errorResponse {
 		case ERROR_PROCESSING_OK:
