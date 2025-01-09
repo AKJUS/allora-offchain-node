@@ -16,6 +16,9 @@ import (
 )
 
 func (suite *UseCaseSuite) BuildCommitWorkerPayload(ctx context.Context, worker lib.WorkerConfig, nonce *emissionstypes.Nonce, timeoutHeight uint64) error {
+	log := log.With().Uint64("topicId", worker.TopicId).Str("actorType", "worker").Logger()
+	log.Info().Msg("Building worker payload")
+
 	if worker.InferenceEntrypoint == nil && worker.ForecastEntrypoint == nil {
 		return errors.New("Worker has no valid Inference or Forecast entrypoints")
 	}
@@ -77,7 +80,7 @@ func (suite *UseCaseSuite) BuildCommitWorkerPayload(ctx context.Context, worker 
 		}
 		suite.Metrics.IncrementMetricsCounter(lib.WorkerChainSubmissionCount, suite.Node.Chain.Address, worker.TopicId)
 	} else {
-		log.Info().Uint64("topicId", worker.TopicId).Msg("SubmitTx=false; Skipping sending Worker Data to chain")
+		log.Info().Msg("SubmitTx=false; Skipping sending Worker Data to chain")
 	}
 	return nil
 }

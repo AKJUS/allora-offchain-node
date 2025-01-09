@@ -79,7 +79,7 @@ func (suite *UseCaseSuite) Spawn(ctx context.Context) {
 	alreadyStartedWorkerForTopic := make(map[emissionstypes.TopicId]bool)
 	for _, worker := range suite.Node.Worker {
 		if _, ok := alreadyStartedWorkerForTopic[worker.TopicId]; ok {
-			log.Debug().Uint64("topicId", worker.TopicId).Msg("Worker already started for topicId")
+			log.Warn().Uint64("topicId", worker.TopicId).Msg("Worker already started for topicId")
 			continue
 		}
 		alreadyStartedWorkerForTopic[worker.TopicId] = true
@@ -88,7 +88,7 @@ func (suite *UseCaseSuite) Spawn(ctx context.Context) {
 		go func(worker lib.WorkerConfig) {
 			defer wg.Done()
 			suite.runWorkerProcess(ctx, worker)
-			log.Error().Uint64("topicId", worker.TopicId).Msg("Worker process finished")
+			log.Error().Uint64("topicId", worker.TopicId).Err(ctx.Err()).Msg("Worker process finished")
 		}(worker)
 	}
 
@@ -96,7 +96,7 @@ func (suite *UseCaseSuite) Spawn(ctx context.Context) {
 	alreadyStartedReputerForTopic := make(map[emissionstypes.TopicId]bool)
 	for _, reputer := range suite.Node.Reputer {
 		if _, ok := alreadyStartedReputerForTopic[reputer.TopicId]; ok {
-			log.Debug().Uint64("topicId", reputer.TopicId).Msg("Reputer already started for topicId")
+			log.Warn().Uint64("topicId", reputer.TopicId).Msg("Reputer already started for topicId")
 			continue
 		}
 		alreadyStartedReputerForTopic[reputer.TopicId] = true
@@ -105,7 +105,7 @@ func (suite *UseCaseSuite) Spawn(ctx context.Context) {
 		go func(reputer lib.ReputerConfig) {
 			defer wg.Done()
 			suite.runReputerProcess(ctx, reputer)
-			log.Error().Uint64("topicId", reputer.TopicId).Msg("Reputer process finished")
+			log.Error().Uint64("topicId", reputer.TopicId).Err(ctx.Err()).Msg("Reputer process finished")
 		}(reputer)
 	}
 
@@ -171,6 +171,8 @@ func (suite *UseCaseSuite) processWorkerPayload(ctx context.Context, worker lib.
 }
 
 func (suite *UseCaseSuite) processReputerPayload(ctx context.Context, reputer lib.ReputerConfig, latestNonceHeightActedUpon int64, timeoutHeight uint64) (int64, error) {
+	log := log.With().Uint64("topicId", reputer.TopicId).Str("actorType", "reputer").Logger()
+	log.Info().Msg("Processing reputer payload")
 	// Get nonce with RPC timeout
 	nonce, err := WithTimeoutResult(ctx, time.Duration(suite.Node.Wallet.TimeoutRPCSecondsQuery)*time.Second,
 		func(ctx context.Context) (*emissionstypes.Nonce, error) {
@@ -178,7 +180,7 @@ func (suite *UseCaseSuite) processReputerPayload(ctx context.Context, reputer li
 		})
 
 	if err != nil {
-		log.Warn().Err(err).Uint64("topicId", reputer.TopicId).Msg("Error getting latest open reputer nonce on topic - node availability issue?")
+		log.Warn().Err(err).Msg("Error getting latest open reputer nonce on topic - node availability issue?")
 		return latestNonceHeightActedUpon, err
 	}
 
@@ -190,11 +192,11 @@ func (suite *UseCaseSuite) processReputerPayload(ctx context.Context, reputer li
 			})
 
 		if err != nil {
-			log.Error().Err(err).Uint64("topicId", reputer.TopicId).Msg("Failed to check if reputer is whitelisted")
+			log.Error().Err(err).Msg("Failed to check if reputer is whitelisted")
 			return latestNonceHeightActedUpon, err
 		}
 		if !isWhitelisted {
-			log.Error().Uint64("topicId", reputer.TopicId).Msg("Reputer is not whitelisted in topic, not submitting payload")
+			log.Error().Msg("Reputer is not whitelisted in topic, not submitting payload")
 			return nonce.BlockHeight, nil
 		}
 
@@ -208,12 +210,10 @@ func (suite *UseCaseSuite) processReputerPayload(ctx context.Context, reputer li
 			return latestNonceHeightActedUpon, errorsmod.Wrapf(err, "error building and committing reputer payload for topic")
 		}
 
-		log.Debug().Uint64("topicId", reputer.TopicId).
-			Str("actorType", "reputer").
-			Msg("Successfully finished processing payload")
+		log.Debug().Msg("Successfully finished processing payload")
 		return nonce.BlockHeight, nil
 	} else {
-		log.Debug().Uint64("topicId", reputer.TopicId).
+		log.Debug().
 			Int64("LastOpenNonceBlockHeight", nonce.BlockHeight).
 			Int64("latestNonceHeightActedUpon", latestNonceHeightActedUpon).Msg("No new reputer nonce found")
 		return latestNonceHeightActedUpon, nil
@@ -246,7 +246,9 @@ func generateRandomOffset(submissionWindow int64) int64 {
 
 // Runs the worker process for a given worker config
 func (suite *UseCaseSuite) runWorkerProcess(ctx context.Context, worker lib.WorkerConfig) {
-	log.Info().Uint64("topicId", worker.TopicId).Msg("Running worker process for topic")
+	// Create a logger with the topicId
+	log := log.With().Uint64("topicId", worker.TopicId).Logger()
+	log.Info().Msg("Running worker process for topic")
 
 	// Handle registration
 	registered, err := WithTimeoutResult(ctx, time.Duration(suite.Node.Wallet.TimeoutRPCSecondsRegistration)*time.Second,
@@ -254,18 +256,19 @@ func (suite *UseCaseSuite) runWorkerProcess(ctx context.Context, worker lib.Work
 			return suite.Node.RegisterWorkerIdempotently(ctx, worker)
 		})
 	if err != nil {
-		log.Error().Err(err).Uint64("topicId", worker.TopicId).Msg("Failed to register worker for topic, exiting")
-	}
-	if !registered {
-		log.Fatal().Uint64("topicId", worker.TopicId).Msg("Failed to register worker for topic, exiting")
+		log.Error().Err(err).Msg("Failed to register worker for topic, exiting")
 		return
 	}
-	log.Debug().Uint64("topicId", worker.TopicId).Msg("Worker registered")
+	if !registered {
+		log.Error().Msg("Failed to register worker for topic, exiting")
+		return
+	}
+	log.Debug().Msg("Worker registered")
 
 	// Using the helper function
 	topicInfo, err := queryTopicInfo(ctx, suite, worker)
 	if err != nil {
-		log.Error().Err(err).Uint64("topicId", worker.TopicId).Msg("Failed to get topic info for worker")
+		log.Error().Err(err).Msg("Failed to get topic info for worker")
 		return
 	}
 
@@ -284,11 +287,11 @@ func (suite *UseCaseSuite) runWorkerProcess(ctx context.Context, worker lib.Work
 			return suite.Node.CanSubmitWorker(ctx, worker.TopicId, suite.Node.Wallet.Address)
 		})
 	if err != nil {
-		log.Error().Err(err).Uint64("topicId", worker.TopicId).Msg("Failed to check if worker is whitelisted")
+		log.Error().Err(err).Msg("Failed to check if worker is whitelisted")
 		return
 	}
 	if !isWhitelisted {
-		log.Error().Uint64("topicId", worker.TopicId).Msg("Worker is not whitelisted in topic, exiting worker process")
+		log.Error().Msg("Worker is not whitelisted in topic, exiting worker process")
 		return
 	}
 
@@ -298,7 +301,9 @@ func (suite *UseCaseSuite) runWorkerProcess(ctx context.Context, worker lib.Work
 
 // Runs the reputer process for a given reputer config
 func (suite *UseCaseSuite) runReputerProcess(ctx context.Context, reputer lib.ReputerConfig) {
-	log.Debug().Uint64("topicId", reputer.TopicId).Msg("Running reputer process for topic")
+	// Create a logger with the topicId
+	log := log.With().Uint64("topicId", reputer.TopicId).Logger()
+	log.Debug().Msg("Running reputer process for topic")
 
 	// Handle registration and staking
 	registeredAndStaked, err := WithTimeoutResult(ctx, time.Duration(suite.Node.Wallet.TimeoutRPCSecondsRegistration)*time.Second,
@@ -308,19 +313,19 @@ func (suite *UseCaseSuite) runReputerProcess(ctx context.Context, reputer lib.Re
 	if err != nil {
 		log.Error().
 			Err(err).
-			Uint64("topicId", reputer.TopicId).
 			Msg("Reputer registration failed")
-	}
-	if !registeredAndStaked {
-		log.Fatal().Uint64("topicId", reputer.TopicId).Msg("Failed to register or sufficiently stake reputer for topic")
 		return
 	}
-	log.Debug().Uint64("topicId", reputer.TopicId).Msg("Reputer registered and staked")
+	if !registeredAndStaked {
+		log.Error().Msg("Failed to register or sufficiently stake reputer for topic")
+		return
+	}
+	log.Debug().Msg("Reputer registered and staked")
 
 	// Using the helper function
 	topicInfo, err := queryTopicInfo(ctx, suite, reputer)
 	if err != nil {
-		log.Error().Err(err).Uint64("topicId", reputer.TopicId).Msg("Failed to get topic info for reputer")
+		log.Error().Err(err).Msg("Failed to get topic info for reputer")
 		return
 	}
 
@@ -339,11 +344,11 @@ func (suite *UseCaseSuite) runReputerProcess(ctx context.Context, reputer lib.Re
 			return suite.Node.CanSubmitReputer(ctx, reputer.TopicId, suite.Node.Wallet.Address)
 		})
 	if err != nil {
-		log.Error().Err(err).Uint64("topicId", reputer.TopicId).Msg("Failed to check if reputer is whitelisted")
+		log.Error().Err(err).Msg("Failed to check if reputer is whitelisted")
 		return
 	}
 	if !isWhitelisted {
-		log.Error().Uint64("topicId", reputer.TopicId).Msg("Reputer is not whitelisted in topic, exiting reputer process")
+		log.Error().Msg("Reputer is not whitelisted in topic, exiting reputer process")
 		return
 	}
 
@@ -355,18 +360,14 @@ func (suite *UseCaseSuite) runReputerProcess(ctx context.Context, reputer lib.Re
 // This mechanism is used to handle the submission of payloads for both workers and reputers,
 // using ActorProcessParams to handle the different configurations and functions needed for each actor type
 func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite, params ActorProcessParams[T]) {
-	log.Debug().
-		Uint64("topicId", params.Config.GetTopicId()).
-		Str("actorType", params.ActorType).
-		Msg("Running actor process for topic")
+	// Create a logger with the topicId and actorType
+	log := log.With().Uint64("topicId", params.Config.GetTopicId()).Str("actorType", params.ActorType).Logger()
+
+	log.Debug().Msg("Running actor process for topic")
 
 	topicInfo, err := queryTopicInfo(ctx, suite, params.Config)
 	if err != nil {
-		log.Error().
-			Err(err).
-			Uint64("topicId", params.Config.GetTopicId()).
-			Str("actorType", params.ActorType).
-			Msg("Failed to get topic info after retries")
+		log.Error().Err(err).Msg("Failed to get topic info after retries")
 		return
 	}
 
@@ -383,7 +384,7 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 				return suite.Node.Chain.Client.Status(ctx)
 			})
 		if err != nil {
-			log.Error().Err(err).Uint64("topicId", topicInfo.Id).Str("actorType", params.ActorType).Msg("Failed to get status")
+			log.Error().Err(err).Msg("Failed to get status")
 			if lib.DoneOrWait(ctx, WAIT_TIME_STATUS_CHECKS) {
 				return
 			}
@@ -393,11 +394,7 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 
 		topicInfo, err := queryTopicInfo(ctx, suite, params.Config)
 		if err != nil {
-			log.Error().
-				Err(err).
-				Uint64("topicId", params.Config.GetTopicId()).
-				Str("actorType", params.ActorType).
-				Msg("Error getting topic info")
+			log.Error().Err(err).Msg("Error getting topic info")
 			return
 		}
 		log.Trace().
@@ -414,11 +411,7 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 
 			latestNonceHeightSentTxFor, err = params.ProcessPayload(ctx, params.Config, latestNonceHeightSentTxFor, uint64(timeoutHeight)) // nolint: gosec
 			if err != nil {
-				log.Error().
-					Err(err).
-					Uint64("topicId", params.Config.GetTopicId()).
-					Str("actorType", params.ActorType).
-					Msg("Error processing payload - could not complete transaction")
+				log.Error().Err(err).Msg("Error processing payload - could not complete transaction")
 			}
 			// Wait for an epochLength with a correction factor, it will self-adjust from there
 			waitingTimeInSeconds, err := calculateTimeDistanceInSeconds(
@@ -427,15 +420,11 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 				NEW_TOPIC_CORRECTION_FACTOR,
 			)
 			if err != nil {
-				log.Error().
-					Err(err).
-					Uint64("topicId", params.Config.GetTopicId()).
-					Str("actorType", params.ActorType).
-					Int64("waitingTimeInSeconds", waitingTimeInSeconds).
-					Msg("Error calculating time distance to next epoch after sending tx - wait epochLength")
+				log.Error().Err(err).Int64("waitingTimeInSeconds", waitingTimeInSeconds).Msg("Error calculating time distance to next epoch after sending tx - wait epochLength")
 				return
 			}
 			if lib.DoneOrWait(ctx, waitingTimeInSeconds) {
+				log.Info().Err(ctx.Err()).Msg("Context done")
 				return
 			}
 			continue
@@ -457,11 +446,7 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 			// Within the submission window, attempt to process payload
 			latestNonceHeightSentTxFor, err = params.ProcessPayload(ctx, params.Config, latestNonceHeightSentTxFor, uint64(timeoutHeight)) // nolint: gosec
 			if err != nil {
-				log.Error().
-					Err(err).
-					Uint64("topicId", params.Config.GetTopicId()).
-					Str("actorType", params.ActorType).
-					Msg("Error processing payload - could not complete transaction")
+				log.Error().Err(err).Msg("Error processing payload - could not complete transaction")
 			}
 
 			distanceUntilNextEpoch := epochEnd - currentBlockHeight
@@ -481,17 +466,11 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 				suite.Node.Wallet.WindowCorrectionFactor,
 			)
 			if err != nil {
-				log.Error().
-					Err(err).
-					Uint64("topicId", params.Config.GetTopicId()).
-					Str("actorType", params.ActorType).
-					Msg("Error calculating time distance to next epoch after sending tx")
+				log.Error().Err(err).Msg("Error calculating time distance to next epoch after sending tx")
 				return
 			}
 
 			log.Info().
-				Uint64("topicId", params.Config.GetTopicId()).
-				Str("actorType", params.ActorType).
 				Int64("currentBlockHeight", currentBlockHeight).
 				Int64("distanceUntilNextEpoch", distanceUntilNextEpoch).
 				Int64("waitingTimeInSeconds", waitingTimeInSeconds).
@@ -504,16 +483,10 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 				NEARNESS_CORRECTION_FACTOR,
 			)
 			if err != nil {
-				log.Error().
-					Err(err).
-					Uint64("topicId", params.Config.GetTopicId()).
-					Str("actorType", params.ActorType).
-					Msg("Error calculating time distance to next epoch after sending tx")
+				log.Error().Err(err).Msg("Error calculating time distance to next epoch after sending tx")
 				return
 			}
 			log.Warn().
-				Uint64("topicId", params.Config.GetTopicId()).
-				Str("actorType", params.ActorType).
 				Int64("waitingTimeInSeconds", waitingTimeInSeconds).
 				Int64("currentBlockHeight", currentBlockHeight).
 				Int64("epochEnd", epochEnd).
@@ -531,16 +504,10 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 					NEARNESS_CORRECTION_FACTOR,
 				)
 				if err != nil {
-					log.Error().
-						Err(err).
-						Uint64("topicId", params.Config.GetTopicId()).
-						Str("actorType", params.ActorType).
-						Msg("Error calculating close distance to epochLength")
+					log.Error().Err(err).Msg("Error calculating close distance to epochLength")
 					return
 				}
 				log.Info().
-					Uint64("topicId", params.Config.GetTopicId()).
-					Str("actorType", params.ActorType).
 					Int64("SubmissionWindowLength", params.SubmissionWindowLength).
 					Int64("offset", offset).
 					Int64("currentBlockHeight", currentBlockHeight).
@@ -556,16 +523,10 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 					suite.Node.Wallet.WindowCorrectionFactor,
 				)
 				if err != nil {
-					log.Error().
-						Err(err).
-						Uint64("topicId", params.Config.GetTopicId()).
-						Str("actorType", params.ActorType).
-						Msg("Error calculating far distance to epochLength")
+					log.Error().Err(err).Msg("Error calculating far distance to epochLength")
 					return
 				}
 				log.Info().
-					Uint64("topicId", params.Config.GetTopicId()).
-					Str("actorType", params.ActorType).
 					Int64("currentBlockHeight", currentBlockHeight).
 					Int64("distanceUntilNextEpoch", distanceUntilNextEpoch).
 					Int64("waitingTimeInSeconds", waitingTimeInSeconds).
@@ -573,6 +534,7 @@ func runActorProcess[T lib.TopicActor](ctx context.Context, suite *UseCaseSuite,
 			}
 		}
 		if lib.DoneOrWait(ctx, waitingTimeInSeconds) {
+			log.Info().Err(ctx.Err()).Msg("Context done")
 			return
 		}
 	}

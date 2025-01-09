@@ -11,6 +11,7 @@ import (
 
 // UpdateGasPriceRoutine continuously updates the gas price at a specified interval
 func (suite *UseCaseSuite) UpdateGasPriceRoutine(ctx context.Context) {
+	log.Info().Msg("Starting gas price routine")
 	for {
 		select {
 		case <-ctx.Done():
