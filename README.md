@@ -158,6 +158,7 @@ The node will use the following timeouts:
 * `timeoutRPCSecondsQuery`: Timeout for RPC queries in seconds, including retries.
 * `timeoutRPCSecondsTx`: Timeout for RPC sending data in seconds, including retries.
 * `timeoutRPCSecondsRegistration`: Timeout for whole RPC registration process in seconds, including retries.
+* `timeoutHTTPConnection`: Timeout for HTTP connection (underlying to the RPC client) in seconds.
 
 ### Error handling
 
