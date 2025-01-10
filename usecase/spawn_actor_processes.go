@@ -247,7 +247,7 @@ func generateRandomOffset(submissionWindow int64) int64 {
 // Runs the worker process for a given worker config
 func (suite *UseCaseSuite) runWorkerProcess(ctx context.Context, worker lib.WorkerConfig) {
 	// Create a logger with the topicId
-	log := log.With().Uint64("topicId", worker.TopicId).Logger()
+	log := log.With().Uint64("topicId", worker.TopicId).Str("actorType", "worker").Logger()
 	log.Info().Msg("Running worker process for topic")
 
 	// Handle registration
@@ -302,7 +302,7 @@ func (suite *UseCaseSuite) runWorkerProcess(ctx context.Context, worker lib.Work
 // Runs the reputer process for a given reputer config
 func (suite *UseCaseSuite) runReputerProcess(ctx context.Context, reputer lib.ReputerConfig) {
 	// Create a logger with the topicId
-	log := log.With().Uint64("topicId", reputer.TopicId).Logger()
+	log := log.With().Uint64("topicId", reputer.TopicId).Str("actorType", "reputer").Logger()
 	log.Debug().Msg("Running reputer process for topic")
 
 	// Handle registration and staking
