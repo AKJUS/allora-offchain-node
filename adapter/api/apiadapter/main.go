@@ -99,6 +99,8 @@ func parseJSONToNodeValues(jsonStr string) ([]lib.NodeValue, error) {
 
 // Expects an inference as a string scalar value
 func (a *AlloraAdapter) CalcInference(node lib.WorkerConfig, blockHeight int64) (string, error) {
+	log := log.With().Str("actorType", "worker").Uint64("topicId", node.TopicId).Logger()
+
 	urlTemplate := node.Parameters["InferenceEndpoint"]
 	url := replaceExtendedPlaceholders(urlTemplate, node.Parameters, blockHeight, node.TopicId)
 	log.Debug().Str("url", url).Msg("Inference endpoint")
@@ -107,6 +109,8 @@ func (a *AlloraAdapter) CalcInference(node lib.WorkerConfig, blockHeight int64) 
 
 // Expects forecast as a json array of NodeValue
 func (a *AlloraAdapter) CalcForecast(node lib.WorkerConfig, blockHeight int64) ([]lib.NodeValue, error) {
+	log := log.With().Str("actorType", "worker").Uint64("topicId", node.TopicId).Logger()
+
 	urlTemplate := node.Parameters["ForecastEndpoint"]
 	url := replaceExtendedPlaceholders(urlTemplate, node.Parameters, blockHeight, node.TopicId)
 	log.Debug().Str("url", url).Msg("Forecasts endpoint")
@@ -127,6 +131,8 @@ func (a *AlloraAdapter) CalcForecast(node lib.WorkerConfig, blockHeight int64) (
 }
 
 func (a *AlloraAdapter) GroundTruth(node lib.ReputerConfig, blockHeight int64) (lib.Truth, error) {
+	log := log.With().Str("actorType", "reputer").Uint64("topicId", node.TopicId).Logger()
+
 	urlTemplate := node.GroundTruthParameters["GroundTruthEndpoint"]
 	url := replaceExtendedPlaceholders(urlTemplate, node.GroundTruthParameters, blockHeight, node.TopicId)
 	log.Debug().Str("url", url).Msg("Ground truth endpoint")
@@ -149,6 +155,8 @@ func (a *AlloraAdapter) GroundTruth(node lib.ReputerConfig, blockHeight int64) (
 }
 
 func (a *AlloraAdapter) LossFunction(node lib.ReputerConfig, groundTruth string, inferenceValue string, options map[string]string) (string, error) {
+	log := log.With().Str("actorType", "reputer").Uint64("topicId", node.TopicId).Logger()
+
 	url := node.LossFunctionParameters.LossFunctionService
 	if url == "" {
 		return "", fmt.Errorf("no loss function endpoint provided")
@@ -208,6 +216,7 @@ func (a *AlloraAdapter) LossFunction(node lib.ReputerConfig, groundTruth string,
 }
 
 func (a *AlloraAdapter) IsLossFunctionNeverNegative(node lib.ReputerConfig, options map[string]string) (bool, error) {
+	log := log.With().Str("actorType", "reputer").Uint64("topicId", node.TopicId).Logger()
 	url := node.LossFunctionParameters.LossFunctionService
 	if url == "" {
 		return false, fmt.Errorf("no loss function endpoint provided")

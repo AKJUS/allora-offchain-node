@@ -63,6 +63,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 * [#101](https://github.com/allora-network/allora-offchain-node/pull/101) Timeout configuration
 * [#104](https://github.com/allora-network/allora-offchain-node/pull/104) Customize rpc client configurations
 * [#105](https://github.com/allora-network/allora-offchain-node/pull/105) Make HTTP timeout configurable
+* [#106](https://github.com/allora-network/allora-offchain-node/pull/106) Improve log context by adding topic id and actor type to logger
 
 ### Changed
 

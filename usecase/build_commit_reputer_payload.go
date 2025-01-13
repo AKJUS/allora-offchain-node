@@ -19,6 +19,8 @@ import (
 // Compute loss bundle with the reputer provided Loss function and ground truth
 // sign and commit to chain
 func (suite *UseCaseSuite) BuildCommitReputerPayload(ctx context.Context, reputer lib.ReputerConfig, nonce lib.BlockHeight, timeoutHeight uint64) error {
+	log := log.With().Uint64("topicId", reputer.TopicId).Str("actorType", "reputer").Logger()
+	log.Info().Msg("Building reputer payload")
 	valueBundle, err := suite.Node.GetReputerValuesAtBlock(ctx, reputer.TopicId, nonce)
 	if err != nil {
 		return errorsmod.Wrapf(err, "error getting reputer values, topic: %d, blockHeight: %d", reputer.TopicId, nonce)
@@ -55,9 +57,9 @@ func (suite *UseCaseSuite) BuildCommitReputerPayload(ctx context.Context, repute
 	}
 	reqJSON, err := json.Marshal(req)
 	if err != nil {
-		log.Error().Err(err).Uint64("topicId", reputer.TopicId).Msgf("Error marshaling MsgInserReputerPayload to print Msg as JSON")
+		log.Error().Err(err).Msgf("Error marshaling MsgInserReputerPayload to print Msg as JSON")
 	} else {
-		log.Debug().Uint64("topicId", reputer.TopicId).Msgf("Sending InsertReputerPayload to chain %s", string(reqJSON))
+		log.Debug().Msgf("Sending InsertReputerPayload to chain %s", string(reqJSON))
 	}
 	if suite.Node.Wallet.SubmitTx {
 		_, err = suite.Node.SendDataWithRetry(ctx, req, "Send Reputer Data to chain", timeoutHeight)
@@ -66,7 +68,7 @@ func (suite *UseCaseSuite) BuildCommitReputerPayload(ctx context.Context, repute
 		}
 		suite.Metrics.IncrementMetricsCounter(lib.ReputerChainSubmissionCount, suite.Node.Chain.Address, reputer.TopicId)
 	} else {
-		log.Info().Uint64("topicId", reputer.TopicId).Msg("SubmitTx=false; Skipping sending Reputer Data to chain")
+		log.Info().Msg("SubmitTx=false; Skipping sending Reputer Data to chain")
 	}
 
 	return nil
