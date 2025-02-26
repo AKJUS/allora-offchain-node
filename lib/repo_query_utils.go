@@ -53,6 +53,9 @@ func QueryDataWithRetry[T any](
 		case ErrorProcessingContinue:
 			// Error has not been handled, just continue next iteration
 			continue
+		case ErrorProcessingResetSequence:
+			log.Warn().Msg("Resetting sequence error on query, this should only happen on simulateTx, requires new txParams")
+			return result, errorsmod.Wrapf(ErrTxSimulationError, "resetting sequence error on simulate query, requires re-simulation")
 		case ErrorProcessingFees:
 			log.Debug().Msg("Query failed due to fees limit")
 			return result, err

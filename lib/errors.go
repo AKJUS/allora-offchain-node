@@ -28,6 +28,7 @@ var (
 	ErrReadPanic         = errorsmod.Register(ErrorCodespace, 6, "read panic")
 	ErrConnectionRefused = errorsmod.Register(ErrorCodespace, 7, "connection refused")
 	ErrAllNodesExhausted = errorsmod.Register(ErrorCodespace, 8, "all available nodes have been tried and exhausted")
+	ErrTxSimulationError = errorsmod.Register(ErrorCodespace, 9, "Tx simulation error")
 	ErrUnexpectedError   = errorsmod.Register(ErrorCodespace, 100, "unexpected error")
 )
 
@@ -59,6 +60,7 @@ const ErrorProcessingGas = "gas"
 const ErrorProcessingError = "error"
 const ErrorProcessingFailure = "failure"
 const ErrorProcessingSwitchingNode = "switch"
+const ErrorProcessingResetSequence = "reset_sequence"
 
 // HTTP status codes that trigger node switching
 var HTTPStatusCodeCodesSwitchingNode = map[int]bool{
@@ -303,7 +305,7 @@ func IsErrorSwitchingNode(err error) bool {
 }
 
 // Extract expected and current sequence numbers from account sequence mismatch error message
-func parseSequenceFromAccountMismatchError(errorMessage string) (uint64, uint64, error) {
+func parseSequenceFromAccountMismatchError(errorMessage string) (expected uint64, current uint64, err error) {
 	// Update regex to handle flexible whitespace
 	re := regexp.MustCompile(`account sequence mismatch,\s*expected\s+(\d+),\s*got\s+(\d+)`)
 	matches := re.FindStringSubmatch(errorMessage)
@@ -433,5 +435,5 @@ func parseAndSetNewWalletSequence(ctx context.Context, err error, node *NodeConf
 	if DoneOrWait(ctx, walletConfig.AccountSequenceRetryDelay) {
 		return ErrorProcessingError, ctx.Err()
 	}
-	return ErrorProcessingContinue, nil
+	return ErrorProcessingResetSequence, nil
 }

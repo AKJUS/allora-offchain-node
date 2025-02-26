@@ -56,6 +56,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Security
 
 
+## v0.9.1
+
+### Added
+
+### Changed
+
+### Fixed
+
+* [#114](https://github.com/allora-network/allora-offchain-node/pull/114) Fix tx simulation(seqnum, gasAdjustment, err handling), validation, tests and minor refactor
+
+### Removed
+
+### Fixed
+
+### Security
+
+
 ## v0.9.0
 
 ### Added

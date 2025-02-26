@@ -22,7 +22,6 @@ func EstimateGas(txSize int, config types.GasEstimationConfig) (uint64, error) {
 	if totalGas < config.BaseGas {
 		return 0, fmt.Errorf("total gas overflows")
 	}
-
 	return totalGas, nil
 }
 

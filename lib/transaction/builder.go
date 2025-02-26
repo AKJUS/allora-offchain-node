@@ -18,10 +18,13 @@ import (
 func BuildAndSignTransaction(
 	ctx context.Context,
 	txParams *types.TransactionParams,
-	sequence uint64,
 	encodingConfig moduletestutil.TestEncodingConfig,
 	msgs ...sdktypes.Msg,
 ) ([]byte, error) {
+	if err := txParams.Validate(); err != nil {
+		return nil, err
+	}
+	log.Debug().Msgf("Building transaction with sequence %d", txParams.Sequence)
 	// Create a new TxBuilder
 	txBuilder := encodingConfig.TxConfig.NewTxBuilder()
 
@@ -34,24 +37,24 @@ func BuildAndSignTransaction(
 	if err := txBuilder.SetMsgs(msgs...); err != nil {
 		return nil, err
 	}
-
-	// Estimate gas limit
-	totalTxSize := 0
-	for _, msg := range msgs {
-		totalTxSize += len(msg.String())
-	}
-
+	// Gas calculation
 	var gas uint64
 	if txParams.GasEstimationConfig.OverrideGas > 0 {
-		log.Info().Msgf("Building tx, overriding gas value with: %d", txParams.GasEstimationConfig.OverrideGas)
 		gas = txParams.GasEstimationConfig.OverrideGas
 	} else {
+		// Estimate gas limit
+		totalTxSize := 0
+		for _, msg := range msgs {
+			totalTxSize += len(msg.String())
+		}
 		// Set gas limit
 		gas, err = rpcclient.EstimateGas(totalTxSize, txParams.GasEstimationConfig)
 		if err != nil {
 			return nil, err
 		}
-		// Apply adjustment safely
+	}
+	// Apply adjustment safely
+	if txParams.GasEstimationConfig.GasAdjustment > 0 {
 		gasFloat := float64(gas) * txParams.GasEstimationConfig.GasAdjustment
 		if gasFloat < gomath.MaxUint64 {
 			gas = uint64(gasFloat)
@@ -64,7 +67,6 @@ func BuildAndSignTransaction(
 	var fees math.Int
 	if txParams.GasEstimationConfig.OverrideFees > 0 {
 		// Set the gas price to the override value
-		log.Info().Msgf("Overriding fees to value: %d", txParams.GasEstimationConfig.OverrideFees)
 		fees = math.NewIntFromUint64(txParams.GasEstimationConfig.OverrideFees)
 	} else {
 		// Calculate using gas limit and min gas price
@@ -84,7 +86,7 @@ func BuildAndSignTransaction(
 	// Set up signature
 	sigV2 := signing.SignatureV2{
 		PubKey:   txParams.PubKey,
-		Sequence: sequence,
+		Sequence: txParams.Sequence,
 		Data: &signing.SingleSignatureData{ // nolint:exhaustruct
 			SignMode: signing.SignMode_SIGN_MODE_DIRECT,
 		},
@@ -108,7 +110,7 @@ func BuildAndSignTransaction(
 		txBuilder,
 		txParams.PrivKey,
 		encodingConfig.TxConfig,
-		sequence,
+		txParams.Sequence,
 	)
 	if err != nil {
 		return nil, err

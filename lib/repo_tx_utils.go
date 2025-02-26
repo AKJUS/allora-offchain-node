@@ -5,11 +5,14 @@ import (
 	"allora_offchain_node/lib/transaction"
 	types "allora_offchain_node/lib/types"
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 
 	errorsmod "cosmossdk.io/errors"
 	coretypes "github.com/cometbft/cometbft/rpc/core/types"
 	sdktypes "github.com/cosmos/cosmos-sdk/types"
+	"github.com/cosmos/cosmos-sdk/types/module/testutil"
 	"github.com/rs/zerolog/log"
 )
 
@@ -64,16 +67,21 @@ func (connectionManager *ConnectionManager) SendDataWithRetry(ctx context.Contex
 	}
 	for retryCount := int64(0); retryCount <= walletConfig.MaxRetries; retryCount++ {
 		log.Debug().Msgf("SendDataWithRetry iteration started (%d/%d)", retryCount, walletConfig.MaxRetries)
-
-		txResp, _, errTx := SendTransactionViaRPC(ctx, txNode.Chain.RPCClient, txNode.ServerAddress, queryNode, txParams, wallet.GetSequence(), false, req)
+		txParams.Sequence = wallet.GetSequence()
+		txResp, _, errTx := SendTransactionViaRPC(ctx, txNode.Chain.RPCClient, txNode.ServerAddress, queryNode, txParams, false, req)
 		if errTx == nil {
 			if txResp != nil {
-				log.Info().Msgf("Transaction sent successfully: %v\n", txResp.Hash.String())
-			} else {
-				log.Warn().Msg("Transaction sent successfully but response is nil")
+				if strings.TrimSpace(txResp.Log) == "" {
+					log.Info().Msgf("Transaction sent successfully: %v\n", txResp.Hash.String())
+					wallet.IncrementSequence()
+					return txResp, nil
+				} else {
+					log.Warn().Msgf("Transaction sent: %v, but nonempty error log: %s\n", txResp.Hash.String(), txResp.Log)
+					// Creating error to process it below.
+					errTx = fmt.Errorf("tx failed: %s", txResp.Log)
+				}
 			}
-			wallet.IncrementSequence()
-			return txResp, nil
+
 		}
 
 		// Handle error on broadcasting
@@ -93,6 +101,10 @@ func (connectionManager *ConnectionManager) SendDataWithRetry(ctx context.Contex
 			}
 		case ErrorProcessingContinue:
 			// Error has not been handled, just continue next iteration
+			continue
+		case ErrorProcessingResetSequence:
+			txParams.Sequence = wallet.GetSequence()
+			log.Warn().Msgf("Resetting sequence error on tx to current sequence %d", txParams.Sequence)
 			continue
 		case ErrorProcessingFees:
 			// Error has not been handled, just mark as recalculate fees on this iteration
@@ -133,30 +145,30 @@ func SendTransactionViaRPC(ctx context.Context,
 	rpcEndpoint string,
 	queryNode *NodeConfig,
 	txParams *types.TransactionParams,
-	sequence uint64,
 	waitForTx bool,
 	msgs ...sdktypes.Msg,
 ) (*coretypes.ResultBroadcastTx, string, error) {
 	log.Debug().Msgf("Sending transaction via RPC to %s", rpcEndpoint)
 	// Build and sign the transaction
 	encodingConfig := transaction.GetEncodingConfig()
-	txBytes, err := transaction.BuildAndSignTransaction(ctx, txParams, sequence, encodingConfig, msgs...)
+	txBytes, err := transaction.BuildAndSignTransaction(ctx, txParams, encodingConfig, msgs...)
 	if err != nil {
 		return nil, "", err
 	}
 
+	var gas uint64
 	if txParams.GasEstimationConfig.SimulateTx {
-		gas, err := queryNode.SimulateTxWithFallback(ctx, txBytes)
+		gas, _, err = simulateWithSequenceRetry(ctx,
+			queryNode,
+			txParams,
+			encodingConfig,
+			queryNode.ConnectionManager.walletConfig.MaxRetries,
+			msgs...)
 		if err != nil {
 			return nil, "", err
 		}
 		log.Debug().Msgf("Simulated gas: %d", gas)
 		txParams.GasEstimationConfig.OverrideGas = gas
-		// Send with overridden gas limit
-		txBytes, err = transaction.BuildAndSignTransaction(ctx, txParams, sequence, encodingConfig, msgs...)
-		if err != nil {
-			return nil, "", err
-		}
 	}
 
 	// Broadcast the transaction via RPC
@@ -166,4 +178,58 @@ func SendTransactionViaRPC(ctx context.Context,
 	}
 
 	return resp, string(txBytes), nil
+}
+
+// Simulates the tx gas calculation limit via GRPC query.
+// If the simulation fails due to account sequence mismatch, it resets the sequence and retries.
+func simulateWithSequenceRetry(
+	ctx context.Context,
+	queryNode *NodeConfig,
+	txParams *types.TransactionParams,
+	encodingConfig testutil.TestEncodingConfig,
+	maxRetries int64,
+	msgs ...sdktypes.Msg,
+) (gas uint64, txBytes []byte, err error) {
+
+	// Initial tx build
+	txBytes, err = transaction.BuildAndSignTransaction(ctx, txParams, encodingConfig, msgs...)
+	if err != nil {
+		return 0, nil, err
+	}
+
+	for retryCount := int64(0); retryCount <= maxRetries; retryCount++ {
+		log.Debug().Msgf("Simulating tx with sequence retry %d/%d", retryCount, maxRetries)
+		gas, err = queryNode.SimulateTxWithFallback(ctx, txBytes)
+		if err == nil {
+			return gas, txBytes, nil
+		}
+
+		if errors.Is(err, ErrTxSimulationError) {
+			expected, current, err := parseSequenceFromAccountMismatchError(err.Error())
+			if err != nil {
+				return 0, nil, err
+			}
+			log.Warn().Msgf("Simulation error, resetting sequence to %d, was %d (retry %d/%d)",
+				expected, current, retryCount, maxRetries)
+
+			wallet, err := queryNode.ConnectionManager.GetWallet()
+			if err != nil {
+				return 0, nil, err
+			}
+			wallet.SetSequence(expected)
+			txParams.Sequence = expected
+
+			// Rebuild tx with new sequence
+			txBytes, err = transaction.BuildAndSignTransaction(ctx, txParams, encodingConfig, msgs...)
+			if err != nil {
+				return 0, nil, err
+			}
+			continue
+		}
+
+		// For other errors, return immediately
+		return 0, nil, err
+	}
+
+	return 0, nil, fmt.Errorf("tx simulation failed after %d retries", maxRetries)
 }
